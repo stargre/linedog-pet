@@ -142,3 +142,19 @@ Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
 - `tests/test_perception.py`：窗口分类、快照渲染、事件提炼、winapi 异常降级
 - `tests/test_agent.py`：mock LLM 服务 + 工具调用 + 流式增量 + 非流式回退
 - `tests/e2e_chat.py`：真实 `PetApp`（离屏）→ 对话框 → Agent → 记忆落库 → 气泡，17 项断言
+
+## 11. 往 GitHub 推送（本机需要代理）
+
+本机直连 GitHub 443 会被阻断，而 **git 默认不读 Windows 系统代理**（Python/浏览器会读）。
+所以推送要显式带代理：
+
+```powershell
+# 单次
+git -c http.proxy=http://127.0.0.1:7897 push
+
+# 或固化到本仓库（代理端口以实际为准，可在系统设置里看到）
+git config http.proxy http://127.0.0.1:7897
+# 取消：git config --unset http.proxy
+```
+
+拉取同理。若代理没开，会看到 `Failed to connect to github.com port 443`。
