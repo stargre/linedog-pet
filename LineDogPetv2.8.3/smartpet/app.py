@@ -28,6 +28,9 @@ from .pet import (
 )
 from . import ai as ai_mod
 from . import chatdb
+from . import memory as memory_mod
+from .perception import PerceptionBus
+from .agent import Agent
 from .panels import (SettingsDialog, StatusDialog, ChatDialog, DiaryDialog,
                      MilestoneDialog, generate_style)
 from . import diary as diary_mod
@@ -156,6 +159,16 @@ class PetApp(QObject):
         self.chat_db = chatdb.ChatDB(
             os.path.join(cfgmod.data_dir(), "chat_history.db"))
         self._chat_new = []  # 本次运行新增的 (role, text, ts)，退出时写盘
+
+        # v2.9 Agent 三件套：桌面环境感知 / 长期记忆 / 工具化对话
+        self.memory = memory_mod.MemoryStore()
+        self.perception = PerceptionBus(self.cfg)
+        self.perception.set_pet_provider(
+            lambda: (self.pet.state,
+                     self.cfg.get("mood", 0.0),
+                     self.cfg.get("energy", 0.0)))
+        self.agent = Agent(self)
+        self.perception.start()
         self.status_dlg = None
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -415,6 +428,21 @@ class PetApp(QObject):
     def _record_diary(self, kind, mood=None, energy=None):
         """日记/里程碑统一埋点：同类事件当日只记一次，首次事件只存一次。"""
         diary_mod.record(kind, mood, energy)
+        # 同步喂给感知流 / 长期记忆（失败不影响主流程）
+        try:
+            cn = {"feed": "喂食", "play": "陪玩", "chase": "追球", "hide": "躲猫猫",
+                  "pet": "摸头", "chin": "挠下巴", "call": "呼唤", "talk": "聊天",
+                  "spin": "转圈", "chat": "对话"}.get(kind)
+            if cn and getattr(self, "perception", None) is not None:
+                self.perception.note(kind, cn)
+            if kind in ("feed", "play", "chase", "hide", "chat", "milestone") \
+                    and getattr(self, "memory", None) is not None:
+                self.memory.add_episode(
+                    kind, "%s（心情%d/体力%d）" % (
+                        cn or kind, int(self.cfg.get("mood", 0)),
+                        int(self.cfg.get("energy", 0))))
+        except Exception:
+            pass
         # 互动加分掉落势能（互动越多越容易捡到小宝贝）
         if kind in ("feed", "play", "chase", "hide", "chin",
                     "pet", "call", "talk", "spin", "chat"):
@@ -433,6 +461,11 @@ class PetApp(QObject):
             self.pet.go_sleep(deep=False)
 
     def _on_music_state(self, song):
+        try:
+            if getattr(self, "perception", None) is not None:
+                self.perception.set_music(song)
+        except Exception:
+            pass
         if self.fx is not None:
             self.fx.feed_music()
         if self.pet.state in (IDLE, STARE, GROOM, RELAX):
@@ -1117,6 +1150,11 @@ class PetApp(QObject):
         if h == self._last_clip_hash:
             return
         self._last_clip_hash = h
+        try:
+            if getattr(self, "perception", None) is not None:
+                self.perception.note_clipboard(t)
+        except Exception:
+            pass
         if looks_like_code(t):
             msg = "你复制了代码哦~ 不懂可以中键点我问"
         else:
@@ -1299,6 +1337,19 @@ class PetApp(QObject):
         self._register_hotkey()
         self._apply_lock_corner()
         self._sync_feature_switches()
+        # Agent 相关开关：感知启停 + 工具集按记忆开关重建
+        try:
+            if self.cfg.get("perception_enabled", True):
+                self.perception.start()
+            else:
+                self.perception.stop()
+        except Exception:
+            pass
+        try:
+            from .tools import build_default_registry
+            self.agent.tools = build_default_registry(self)
+        except Exception:
+            pass
         self._apply_menu_theme(self.tray.contextMenu())
         if self.chat:
             self.chat.set_ai_enabled(bool(self.cfg.get("ai_enabled")))
@@ -1391,31 +1442,70 @@ class PetApp(QObject):
         self._chat_new = []
 
     def handle_chat(self, text):
+        text = (text or "").strip()
+        if not text:
+            return
         self.chat.add_msg("user", text)
         diary_mod.record("chat", self.cfg.get("mood"), self.cfg.get("energy"))
-        cmd = ai_mod.parse_command(text)
-        if cmd:
-            reply = self._run_command(cmd)
-            self.chat.add_msg("pet", reply)
-            self.pet.show_bubble(reply, 3500)
-            return
-        if not (self.cfg.get("ai_enabled") and self.cfg.get("ai_key")
-                and self.cfg.get("ai_base")):
-            tip = "AI 还没开启：托盘→设置→AI，填入你自己的 API 就能聊天啦"
+        try:
+            if getattr(self, "memory", None) is not None:
+                self.memory.add_episode("chat", "你：%s" % text[:60])
+        except Exception:
+            pass
+
+        # 未开启 AI（或没配 Key）：退回本地正则指令，保证离线可用
+        if not (self.cfg.get("ai_enabled") and getattr(self, "agent", None)
+                and self.agent.available()):
+            cmd = ai_mod.parse_command(text)
+            if cmd:
+                reply = self._run_command(cmd)
+                self.chat.add_msg("pet", reply)
+                self.pet.show_bubble(reply, 3500)
+                return
+            tip = ("AI 还没开启：托盘→设置→AI，填入你自己的 API 就能聊天啦"
+                   "（现在只能执行本地指令：变小 / 躲猫猫 / 陪我玩…）")
             self.chat.add_msg("sys", tip)
             self.pet.show_bubble("要先在设置里填 API 哦~", 3200)
             return
-        self.chat.set_busy(True)
-        context_text = self._ai_context_text() if self.cfg.get("ai_context") else ""
-        self.ai_history.append({"role": "user", "content": text})
-        self.ai_worker = ai_mod.AIWorker(
-            self.cfg, self.ai_history, context_text, text)
 
-        worker = self.ai_worker
-        worker.replied.connect(self._ai_replied)
-        worker.failed.connect(self._ai_failed)
-        worker.finished.connect(worker.deleteLater)
-        worker.start()
+        # Agent 路径：感知 + 记忆 + 工具调用 + 流式输出
+        self.chat.set_busy(True)
+        self.chat.start_reply()
+        self.ai_history.append({"role": "user", "content": text})
+        run = self.agent.run(
+            text,
+            history=self.ai_history[:-1],
+            on_delta=self.chat.append_reply,
+            on_note=self.chat.add_note,
+            on_done=self._agent_replied,
+            on_error=self._agent_failed,
+        )
+        if run is None:
+            self.chat.finish_reply("")
+            self.chat.set_busy(False)
+
+    def _agent_replied(self, text):
+        text = (text or "").strip()
+        self.chat.finish_reply(text)
+        if text:
+            self.ai_history.append({"role": "assistant", "content": text})
+            if len(self.ai_history) > 8:
+                self.ai_history = self.ai_history[-8:]
+            short = text if len(text) <= 40 else text[:40] + "…"
+            self.pet.show_bubble(short, 6000)
+            try:
+                if getattr(self, "memory", None) is not None \
+                        and self.cfg.get("memory_enabled", True):
+                    self.memory.add_episode("chat", "小狗说：%s" % text[:60])
+            except Exception:
+                pass
+        self.chat.set_busy(False)
+
+    def _agent_failed(self, msg):
+        self.chat.finish_reply("")
+        self.chat.add_msg("sys", msg)
+        self.chat.set_busy(False)
+        self.pet.show_bubble("我连不上 API，等下再试~", 3200)
 
     def _ai_replied(self, text):
         # 保留 worker 引用直到 finished.connect 触发 deleteLater；这里只清空业务引用
@@ -1594,6 +1684,18 @@ class PetApp(QObject):
     def quit_app(self):
         self.save()
         self._save_chat()
+        try:
+            self.agent.cancel()
+        except Exception:
+            pass
+        try:
+            self.perception.stop()
+        except Exception:
+            pass
+        try:
+            self.memory.close()
+        except Exception:
+            pass
         try:
             self.plugins.close_all()
         except Exception:

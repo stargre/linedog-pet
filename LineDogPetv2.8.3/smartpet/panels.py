@@ -13,7 +13,8 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QStackedWidget, QSpinBox, QApplication,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl, QTimer, QSize, QThread
-from PyQt6.QtGui import QKeySequence, QColor, QPixmap, QDesktopServices, QPainter
+from PyQt6.QtGui import (QKeySequence, QColor, QPixmap, QDesktopServices, QPainter,
+                         QTextCursor, QTextCharFormat)
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 
 from . import ai as ai_mod
@@ -861,8 +862,8 @@ class SettingsDialog(QDialog):
         self.ai_persona_hint = QLabel("")
         self.ai_persona_hint.setWordWrap(True)
         self.ai_persona_hint.setStyleSheet("color:%s; font-size:8pt;" % hint_color(self.cfg))
-        privacy = QLabel("隐私：请求从你的电脑直接发送到你填写的服务商，不经过任何中间服务器，\n"
-                         "程序不保存聊天记录。Key 仅保存在本机 config.json。")
+        privacy = QLabel("隐私：请求从你的电脑直接发送到你填写的服务商，不经过任何中间服务器。\n"
+                         "聊天记录与 AI 记忆只存在本机（config.json / chat_history.db / memory.db），可一键清空。")
         privacy.setStyleSheet("color:%s;" % hint_color(self.cfg))
         s4a = CollapsibleSection("接入与开关", "🤖", expanded=True)
         s4a.add_field(self.ai_on)
@@ -878,6 +879,28 @@ class SettingsDialog(QDialog):
         s4b.add_field(self.ai_persona_hint)
         s4b.add_field(privacy)
         v4.addWidget(s4b)
+
+        # ---------- AI 能力（Agent）：工具 / 流式 / 记忆 / 感知 ----------
+        self.agent_on = QCheckBox("允许 AI 调用工具（走路、变大变小、睡觉、陪玩、记事情…）")
+        self.agent_stream = QCheckBox("流式输出（逐字显示，等待感更小）")
+        self.mem_on = QCheckBox("长期记忆（记住你的偏好与经历，跨会话保留）")
+        self.percep_on = QCheckBox("桌面环境感知（把前台窗口/是否离开/全屏/在写代码告诉 AI）")
+        self.mem_status = QLabel("")
+        self.mem_status.setWordWrap(True)
+        self.mem_status.setStyleSheet("color:%s; font-size:8pt;" % hint_color(self.cfg))
+        self.btn_clear_mem = QPushButton("清空 AI 记忆")
+        self.btn_clear_mem.setObjectName("flat")
+        self.btn_clear_mem.clicked.connect(self._clear_memory)
+
+        s4c = CollapsibleSection("AI 能力（Agent）", "🧠", expanded=True)
+        s4c.add_field(self.agent_on)
+        s4c.add_field(self.agent_stream)
+        s4c.add_field(self.mem_on)
+        s4c.add_field(self.percep_on)
+        s4c.add_field(self.mem_status)
+        s4c.add_row("", self.btn_clear_mem)
+        v4.addWidget(s4c)
+
         v4.addStretch(1)
         self.provider.currentIndexChanged.connect(self._on_provider)
         tabs.addTab(self._wrap_scroll(t4), "AI 对话")
@@ -2358,6 +2381,25 @@ class SettingsDialog(QDialog):
         self._last_count = n
         self.pet_count_changed.emit(int(n))
 
+    # ---------------- AI 记忆 ----------------
+    def _refresh_mem_status(self):
+        try:
+            from .memory import MemoryStore
+            st = MemoryStore().stats()
+            self.mem_status.setText(
+                "记忆库：%d 条事实 / %d 条经历　（%s）"
+                % (st["facts"], st["episodes"], st["path"]))
+        except Exception:
+            self.mem_status.setText("记忆库：不可用")
+
+    def _clear_memory(self):
+        try:
+            from .memory import MemoryStore
+            MemoryStore().clear()
+        except Exception:
+            pass
+        self._refresh_mem_status()
+
     def _load(self):
         self._snapshot()
         c = self.cfg
@@ -2415,6 +2457,11 @@ class SettingsDialog(QDialog):
         self.ai_key.setText(c.get("ai_key", ""))
         self.ai_model.setText(c.get("ai_model", ""))
         self.ai_ctx.setChecked(bool(c.get("ai_context", True)))
+        self.agent_on.setChecked(bool(c.get("agent_enabled", True)))
+        self.agent_stream.setChecked(bool(c.get("agent_stream", True)))
+        self.mem_on.setChecked(bool(c.get("memory_enabled", True)))
+        self.percep_on.setChecked(bool(c.get("perception_enabled", True)))
+        self._refresh_mem_status()
         # 人设缓存：先读已保存的，再同步编辑框到当前形象
         self._persona_edits = dict(c.get("ai_personas") or {})
         self._active_persona_char = None
@@ -2528,6 +2575,10 @@ class SettingsDialog(QDialog):
         c["ai_model"] = self.ai_model.text().strip()
         c["ai_context"] = self.ai_ctx.isChecked()
         c["ai_personas"] = self._collect_personas()
+        c["agent_enabled"] = self.agent_on.isChecked()
+        c["agent_stream"] = self.agent_stream.isChecked()
+        c["memory_enabled"] = self.mem_on.isChecked()
+        c["perception_enabled"] = self.percep_on.isChecked()
 
         c["avoid_windows"] = self.avoid.isChecked()
         c["roam_enabled"] = self.roam.isChecked()
@@ -2668,6 +2719,9 @@ class ChatDialog(QDialog):
         row.addWidget(self.send_btn)
         lay.addLayout(row)
         self.set_ai_enabled(ai_enabled)
+        # 流式回复状态
+        self._stream_on = False
+        self._stream_buf = ""
 
     def set_character_name(self, name):
         """切换形象后同步消息里的角色名（AI 人设也跟形象走）。"""
@@ -2704,6 +2758,66 @@ class ChatDialog(QDialog):
         self.input.setEnabled(not busy)
         self.send_btn.setEnabled(not busy)
         self.send_btn.setText("思考中…" if busy else "发送")
+
+    # ---------------- 流式回复（Agent 用） ----------------
+    def _msg_color(self, role):
+        dark = bool(self.cfg.get("dark_mode", False))
+        if dark:
+            return {"user": "#c9a8d8", "pet": "#ff8ab8",
+                    "sys": "#d9b8c6"}.get(role, "#d8d0d4")
+        return {"user": PINK_USER_MSG, "pet": PINK_PET_MSG,
+                "sys": PINK_SYS_MSG}.get(role, "#5e3345")
+
+    def _insert_colored(self, text, role="pet"):
+        if not text:
+            return
+        cur = self.view.textCursor()
+        cur.movePosition(QTextCursor.MoveOperation.End)
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(self._msg_color(role)))
+        cur.insertText(text, fmt)
+        self.view.setTextCursor(cur)
+        self.view.ensureCursorVisible()
+
+    def start_reply(self):
+        """开启一段可流式追加的回复。"""
+        self._stream_buf = ""
+        self._stream_on = True
+        self._after_note = False
+        self._insert_colored("\n" + self._char_name + "：", "pet")
+
+    def append_reply(self, piece):
+        if not self._stream_on or not piece:
+            return
+        if self._after_note and not self._stream_buf:
+            self._after_note = False
+            self._insert_colored("\n", "pet")
+        self._stream_buf += piece
+        self._insert_colored(piece, "pet")
+
+    def add_note(self, line):
+        """工具调用旁白，灰色小字。"""
+        if line:
+            self._insert_colored("\n" + str(line), "sys")
+            self._after_note = True
+
+    def finish_reply(self, text=""):
+        was = self._stream_on
+        self._stream_on = False
+        final = (text or "").strip()
+        if not was:
+            if final:
+                self.add_msg("pet", final)
+            return
+        if final and not self._stream_buf:
+            if getattr(self, "_after_note", False):
+                self._insert_colored("\n", "pet")
+            self._insert_colored(final, "pet")
+        self._after_note = False
+        body = final or self._stream_buf
+        if not body:
+            self._insert_colored("（没说话）", "sys")
+        self.message_added.emit("pet", body)
 
 
 def _escape(s):

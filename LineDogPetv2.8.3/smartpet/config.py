@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 极简本地配置：单个几十 KB 以内的 config.json。
 优先放在程序目录；不可写时退回 %APPDATA%\\SmartPet。
@@ -19,7 +19,7 @@ if getattr(sys, "frozen", False):
 else:
     EXE_DIR = APP_DIR
 CONFIG_NAME = "config.json"
-APP_VERSION = "2.8.3"
+APP_VERSION = "2.9.0"
 APP_NAME = "LineDogPet"
 APP_CN_NAME = "线条小狗狗桌宠"
 # 原作者署名（Apache-2.0 要求保留）；二次开发者请在此追加自己的信息
@@ -92,6 +92,22 @@ DEFAULT_CONFIG = {
     "ai_model": "deepseek-chat",
     "ai_context": True,         # 把本地状态作为上下文发给用户自己的 API
     "ai_personas": {},          # 每个形象自定义 AI 人设：{形象id: 人设文本}，空则用内置默认
+
+    # —— AI Agent：自然语言交互（工具调用）——
+    "agent_enabled": True,      # 允许 AI 调用工具操作桌宠；关闭后只聊天不动手
+    "agent_stream": True,       # 流式输出（逐字显示）
+    "agent_max_rounds": 4,      # 单轮对话内最多几轮工具调用，防死循环
+    "ai_max_tokens": 400,       # 回复长度上限（工具调用需要比闲聊更大）
+    "ai_temperature": 0.7,
+
+    # —— AI 记忆 ——
+    "memory_enabled": True,     # 记住用户说过的偏好/事实，并跨会话保留
+    "memory_max_facts": 200,    # 事实条数上限（超出淘汰最久未更新的）
+    "memory_max_episodes": 800, # 经历条数上限
+
+    # —— 桌面环境感知（给 AI 的上下文）——
+    "perception_enabled": True,
+    "perception_interval": 3000,  # 采样间隔（毫秒）
 
     # —— 窗口 / 桌面 ——
     "avoid_windows": True,      # 智能避让窗口

@@ -116,3 +116,29 @@ Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process
 - `requirements.txt` 只有 `PyQt6`，**漏了 requests**（AI 用）；建议改成两行。
 - 仓库自带的 `smartpet/__pycache__/` 里 `gifplayer`、`bongomap` 只有 `.pyc` 无源码，且**无人 import**，属死代码（已被 `.gitignore` 排除，不再进仓库）。
 - README 里「CPU 紧张踱步」「浏览器探头偷看」在 v2.8.3 已下线（函数是空实现）。
+
+## 10. v2.9 新增：AI Agent 三件套
+
+| 新增模块 | 作用 |
+|---|---|
+| `smartpet/perception.py` | 桌面环境感知：3s 采样前台窗口/全屏/闲置/CPU/音乐，提炼事件流 |
+| `smartpet/memory.py` | 长期记忆：sqlite（facts / episodes），关键词召回，容量上限自动淘汰 |
+| `smartpet/llm.py` | OpenAI 兼容客户端：流式 SSE + function calling 增量拼装 |
+| `smartpet/tools.py` | 工具注册表 + 13 个内置工具（说/走/大小/睡/玩/喂/记忆/看环境…） |
+| `smartpet/agent.py` | 对话主循环：人设 + 环境 + 记忆 → LLM → 工具 → 再推理 |
+
+**新增数据文件**：`D:\LineDogPet\memory.db`（AI 记忆）。设置 → AI 对话 → 「AI 能力（Agent）」里可开关并一键清空。
+
+**接入方式**：`app.PetApp.__init__` 里创建 `memory / perception / agent`；`handle_chat()` 改为走 Agent（AI 未开启时自动退回本地正则指令）；`ChatDialog` 增加流式方法 `start_reply / append_reply / add_note / finish_reply`。
+
+**自测**（在仓库根目录执行，用 `linedog` 环境）：
+
+```powershell
+& "$env:USERPROFILE\.conda\envs\linedog\python.exe" -m unittest discover -s tests -v
+& "$env:USERPROFILE\.conda\envs\linedog\python.exe" tests\e2e_chat.py
+```
+
+- `tests/test_memory.py`：记忆读写/覆盖/检索/上限/清空
+- `tests/test_perception.py`：窗口分类、快照渲染、事件提炼、winapi 异常降级
+- `tests/test_agent.py`：mock LLM 服务 + 工具调用 + 流式增量 + 非流式回退
+- `tests/e2e_chat.py`：真实 `PetApp`（离屏）→ 对话框 → Agent → 记忆落库 → 气泡，17 项断言

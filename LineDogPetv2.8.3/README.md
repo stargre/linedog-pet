@@ -195,6 +195,82 @@
 - **全局快捷键**：自定义快捷键
 - **开机自启**：登录时自动运行
 
+## 🧠 AI Agent（自然语言交互 / 记忆 / 环境感知）
+
+在原有"可选 AI 对话"之上，这一版把桌宠升级成了**能被自然语言驱动的 Agent**：
+它看得懂你的桌面、记得住你说过的话、并且能自己动手（走路、变大、睡觉、陪玩…）。
+
+### 三条能力线
+
+| 能力 | 实现 | 文件 |
+|---|---|---|
+| **自然语言交互** | OpenAI 兼容 **流式** + **function calling**；多轮工具调用（默认最多 4 轮）；对话窗逐字显示并标注动作 | `llm.py`、`agent.py` |
+| **AI 记忆** | 本地 sqlite：`facts`（结构化事实，key 唯一可覆盖）+ `episodes`（经历流水）；每次对话按关键词召回并注入 prompt；跨会话保留，可一键清空 | `memory.py` |
+| **桌面环境感知** | 3 秒采样前台窗口/全屏/键鼠闲置/CPU/音乐/剪贴板，聚合成**事件流**（切应用、离开、久坐写码…）；渲染成中文段落注入 prompt | `perception.py` |
+
+### 工具清单（模型可调用）
+
+| 工具 | 作用 |
+|---|---|
+| `say` | 冒一句话气泡 |
+| `move` | 走到 center/left/right/top/bottom/corner/near_cursor |
+| `set_size` | 改大小（80–260） |
+| `sleep` / `wake` | 睡觉 / 叫醒 |
+| `play` | 追球 / 躲猫猫 / 普通玩耍 |
+| `feed` | 喂食 |
+| `set_visible` | 显示 / 隐藏 |
+| `get_status` | 读心情、体力、状态、时间 |
+| `get_environment` | 重新读一遍桌面环境 |
+| `remember` / `recall` | 写入 / 检索长期记忆 |
+| `open_panel` | 打开状态、日记、设置、对话窗 |
+
+> 刻意**不提供**执行任意命令、读写任意文件、模拟键鼠的能力——避免模型越界。
+
+### 一次对话发生了什么
+
+```
+你：「记住我叫小张，顺便去右下角」
+  ① system = 人设 + [当前环境] + [长期记忆] + 工具清单 + 行为准则
+  ② POST /chat/completions（stream=true, tools=[...]）
+  ③ 模型返回 tool_calls → 本地执行 remember / move → 结果作为 role=tool 回填
+  ④ 再请求一轮 → 模型给出最终一句话 → 流式显示 + 气泡
+```
+
+### 配置项（`config.json`，设置 → AI 对话 → 「AI 能力（Agent）」可改）
+
+```jsonc
+{
+  "agent_enabled": true,      // 允许调用工具
+  "agent_stream": true,       // 流式输出
+  "agent_max_rounds": 4,      // 单轮最多工具轮数
+  "ai_max_tokens": 400,
+  "ai_temperature": 0.7,
+  "memory_enabled": true,
+  "memory_max_facts": 200,
+  "memory_max_episodes": 800,
+  "perception_enabled": true,
+  "perception_interval": 3000
+}
+```
+
+### 数据与隐私
+
+| 文件 | 内容 |
+|---|---|
+| `D:\LineDogPet\config.json` | 配置（含 API Key，仅本机） |
+| `D:\LineDogPet\memory.db` | AI 长期记忆（事实 + 经历） |
+| `D:\LineDogPet\chat_history.db` | 对话记录（保留最近 200 条） |
+
+请求只发往**你自己填写的** API 地址；不经过任何中间服务器；无遥测。
+关闭 `ai_enabled` 后全程离线，退回本地正则指令（变小/躲猫猫/陪我玩…）。
+
+### 自测
+
+```bash
+python -m unittest discover -s tests -v   # 27 个单元/集成用例（含 mock LLM）
+python tests/e2e_chat.py                  # 真实 PetApp 端到端（离屏 + mock 服务）
+```
+
 ## 🎨 技术架构
 
 ### 核心技术
