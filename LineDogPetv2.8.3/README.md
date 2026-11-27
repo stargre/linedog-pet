@@ -1,15 +1,20 @@
 # LineDogPet 智能桌宠 🐕
 
+> **本仓库 `stargre/linedog-pet` 是 LineDogPet v2.8.3 的二开分支**
+> 上游：https://github.com/Mrjiumeng/LineDogPet
+> 主要改动：数据目录迁至 `D:\LineDogPet`、与上游仓库完全解耦（不再检查上游更新 / 不再连插件市场）、开机自启默认关闭。
+> 开发环境：conda 环境 `linedog`（Python 3.12 + PyQt6）。
+
 <div align="center">
 
 一款功能丰富的 Windows 桌面宠物软件，让你的桌面充满活力与温馨
 
-[![Version](https://img.shields.io/badge/version-2.0.1-pink.svg)](https://github.com/Mrjiumeng/LineDogPet/releases/)
+[![Version](https://img.shields.io/badge/version-2.8.3-pink.svg)](https://github.com/stargre/linedog-pet)
 [![Platform](https://img.shields.io/badge/platform-Windows-blue.svg)](https://www.microsoft.com/windows)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12-yellow.svg)](https://www.python.org/)
 
-[English](README_EN.md) | 简体中文
+简体中文
 
 </div>
 
@@ -67,7 +72,7 @@
 ### 🔧 系统特性
 - **低内存占用**：即用即弃的 GIF 加载策略，内存占用仅几十 MB
 - **自动内存回收**：定期清理缓存，保持系统流畅
-- **自动更新检查**：启动时自动检查新版本
+- **自动更新检查**：~~启动时自动检查新版本~~（本分支已关闭，不再轮询上游仓库）
 - **绿色软件**：无需安装，双击即可运行
 - **配置持久化**：自动保存位置、心情、体力等状态
 
@@ -118,8 +123,8 @@
 
 1. **下载程序**
    ```bash
-   # 从 GitHub Releases 下载最新版本
-   https://github.com/Mrjiumeng/LineDogPet/releases/
+   # 从本项目 Releases 下载（暂无发布包时请用下面的源码方式运行）
+   https://github.com/stargre/linedog-pet/releases/
    ```
 
 2. **解压运行**
@@ -128,18 +133,22 @@
    智能桌宠.exe
    ```
 
-3. **或从源码运行**
+3. **或从源码运行**（推荐）
    ```bash
    # 克隆仓库
-   git clone https://github.com/Mrjiumeng/LineDogPet.git
-   cd LineDogPet
+   git clone https://github.com/stargre/linedog-pet.git
+   cd linedog-pet
 
-   # 安装依赖
-   pip install -r requirements.txt
+   # 安装依赖（Python 3.12）
+   pip install PyQt6 requests
 
-   # 运行程序
-   python 智能桌宠.py
+   # 运行程序（二选一）
+   python LineDogPetv2.8.3/main.py
+   python "LineDogPetv2.8.3/智能桌宠.py"
    ```
+
+   > 运行数据（配置 / 日记 / 插件存档）默认写到 **`D:\LineDogPet`**；
+   > 该目录不可写时自动回退 `%APPDATA%\LineDogPet`，见 `smartpet/config.py` 的 `DATA_ROOT`。
 
 ### 基本使用
 
@@ -287,17 +296,18 @@ A: A: 直接卸载程序即可，卸载后无任何残留文件及注册表。
 - **官网**：https://serve.kesug.com/
 
 ### 项目地址
-- **GitHub**：https://github.com/Mrjiumeng/LineDogPet/
-- **Gitee**：https://gitee.com/chu-minghao-666/LineDogPet
-- **GitCode**：https://gitcode.com/2401_84201371/LineDogPet/
+- **GitHub**：https://github.com/stargre/linedog-pet/
+- **上游**：https://github.com/Mrjiumeng/LineDogPet/
 
 ### 社区支持
 - **问题反馈**：GitHub Issues
-- **功能建议**：GitHub Discussions
 
 ## 📄 开源协议
 
-本项目采用 MIT 协议开源，详见 [LICENSE](LICENSE) 文件。
+> ⚠️ 校正说明：本仓库根目录的 [`LICENSE`](LICENSE) 实为 **Apache License 2.0**（徽章已按实际协议修正）。
+> 下面这段 MIT 文本是上游 README 的遗留内容，仅供参考。
+
+本项目遵循 [LICENSE](LICENSE)（Apache-2.0）。
 
 ```
 MIT License

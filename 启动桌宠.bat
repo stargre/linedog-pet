@@ -1,14 +1,15 @@
 @echo off
+rem LineDogPet launcher - conda env "linedog" (Python 3.12 + PyQt6)
 setlocal
-set "PY=C:\Users\lzy15\.conda\envs\linedog\pythonw.exe"
-set "APP=%~dp0LineDogPetv2.8.3\智能桌宠.py"
+set "PY=%USERPROFILE%\.conda\envs\linedog\pythonw.exe"
+set "APP=%~dp0LineDogPetv2.8.3\main.py"
 if not exist "%PY%" goto :nopy
 if not exist "%APP%" goto :noapp
 start "" "%PY%" "%APP%"
 exit /b 0
 :nopy
 echo [ERROR] interpreter not found: %PY%
-echo Create it first: conda create -n linedog python=3.12
+echo Create it first: conda create -n linedog python=3.12 ^&^& pip install PyQt6 requests
 pause
 exit /b 1
 :noapp
